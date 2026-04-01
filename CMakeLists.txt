@@ -15,11 +15,10 @@ find_package(ament_cmake_python REQUIRED)
 
 
 
-include_directories(include)
+# include_directories(include)
 
-
-install(DIRECTORY include/
-DESTINATION include/${PROJECT_NAME})
+# install(DIRECTORY include/
+# DESTINATION include/${PROJECT_NAME})
 
 install(PROGRAMS
   scripts/radio_bridge.py
