@@ -106,6 +106,15 @@ class CommsDevice(ABC):
         self.my_address    = my_address
         self.device_id     = device_id
 
+        # Stats counters
+        self.stat_tx_total          = 0
+        self.stat_tx_failed         = 0
+        self.stat_rx_total          = 0
+        self.stat_rx_checksum_fail  = 0
+        self.stat_rx_dest_mismatch  = 0
+        self.stat_rx_parse_error    = 0
+        self.stat_rx_ack_received   = 0
+
     # ------------------------------------------------------------------
     # Abstract — must implement
     # ------------------------------------------------------------------
@@ -183,7 +192,23 @@ class CommsDevice(ABC):
             2. _send_raw(address, framed)     → bool
         """
         framed = self._add_framing(address, packet)
-        return self._send_raw(address, framed)
+        self.stat_tx_total += 1
+        ok = self._send_raw(address, framed)
+        if not ok:
+            self.stat_tx_failed += 1
+        return ok
+
+    def get_stats(self) -> dict:
+        """Return a snapshot of device-level counters."""
+        return {
+            "tx_total":         self.stat_tx_total,
+            "tx_failed":        self.stat_tx_failed,
+            "rx_total":         self.stat_rx_total,
+            "rx_checksum_fail": self.stat_rx_checksum_fail,
+            "rx_dest_mismatch": self.stat_rx_dest_mismatch,
+            "rx_parse_error":   self.stat_rx_parse_error,
+            "rx_ack_received":  self.stat_rx_ack_received,
+        }
 
     def set_receive_callback(self, fn: Callable[[int, int, bytes, int, Optional[str]], None]) -> None:
         """
@@ -241,6 +266,8 @@ class CommsDevice(ABC):
             self._log.warning("Packet too short, discarding.")
             return
 
+        self.stat_rx_total += 1
+
         packet_type = struct.unpack_from("<B", raw, 0)[0]
         inner       = raw[1:]
 
@@ -255,12 +282,14 @@ class CommsDevice(ABC):
         # --- DATA pipeline ---
         if not self._verify_checksum(inner):
             self._log.debug("Packet discarded: checksum mismatch")
+            self.stat_rx_checksum_fail += 1
             return
 
         dest_addr, src_id, packet = self._strip_framing(inner)
 
         if not self._check_destination(dest_addr):
             self._log.debug(f"Packet discarded: destination {dest_addr!r} not for us")
+            self.stat_rx_dest_mismatch += 1
             return
 
         try:
@@ -270,6 +299,7 @@ class CommsDevice(ABC):
                 self._rx_callback(bridge_id, seq, after_seq, src_id, src_hw_addr)
         except Exception as exc:
             self._log.error(f"RX DATA parse error: {exc}")
+            self.stat_rx_parse_error += 1
 
     def _handle_ack(self, inner: bytes) -> None:
         """
@@ -285,6 +315,7 @@ class CommsDevice(ABC):
             return
         try:
             src_id, seq, bridge_id = struct.unpack_from("<BHB", inner, 0)
+            self.stat_rx_ack_received += 1
             if self._ack_callback:
                 self._ack_callback(bridge_id, seq, src_id)
         except Exception as exc:

@@ -28,6 +28,10 @@
     sim_tx_topic: /radio_sim/tx
     sim_rx_topic: /radio_sim/rx
 
+    # How often (seconds) to log and publish stats on ~/radio_stats.
+    # Set to 0 to disable.
+    stats_interval: 30.0
+
 /rf_bridge_a:
   ros__parameters:
 
@@ -58,6 +62,9 @@
     sim_mode: false
     sim_tx_topic: /radio_sim/a_to_b
     sim_rx_topic: /radio_sim/b_to_a
+    # How often (seconds) to log and publish stats on ~/radio_stats.
+    # Set to 0 to disable.
+    stats_interval: 30.0
 
 /rf_bridge_b:
   ros__parameters:
@@ -88,3 +95,6 @@
     sim_mode: false
     sim_tx_topic: /radio_sim/b_to_a
     sim_rx_topic: /radio_sim/a_to_b
+    # How often (seconds) to log and publish stats on ~/radio_stats.
+    # Set to 0 to disable.
+    stats_interval: 30.0

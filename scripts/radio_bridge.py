@@ -14,14 +14,16 @@ Usage:
         -p xbee_baud:=9600
 """
 
+import json
 from typing import Any, Callable, Optional
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from rosidl_runtime_py.utilities import get_message
+from std_msgs.msg import String
 
-from bridge_core import BridgeCore, TxManager
+from bridge_core import BridgeCore, TxManager, seq_distance
 from comms_device import CommsDevice
 from radio_manager import XBeeRadioDevice
 from ros_topic_device import RosTopicDevice
@@ -76,14 +78,16 @@ class BridgeNode(Node):
         self.declare_parameter("sim_mode", False)
         self.declare_parameter("sim_tx_topic", "/radio_sim/tx")
         self.declare_parameter("sim_rx_topic", "/radio_sim/rx")
+        self.declare_parameter("stats_interval", 30.0)
 
-        config_path = self.get_parameter("config_file").get_parameter_value().string_value
-        xbee_port   = self.get_parameter("xbee_port").get_parameter_value().string_value
-        xbee_baud   = self.get_parameter("xbee_baud").get_parameter_value().integer_value
-        device_id   = self.get_parameter("device_id").get_parameter_value().integer_value
-        sim_mode    = self.get_parameter("sim_mode").get_parameter_value().bool_value
-        sim_tx      = self.get_parameter("sim_tx_topic").get_parameter_value().string_value
-        sim_rx      = self.get_parameter("sim_rx_topic").get_parameter_value().string_value
+        config_path    = self.get_parameter("config_file").get_parameter_value().string_value
+        xbee_port      = self.get_parameter("xbee_port").get_parameter_value().string_value
+        xbee_baud      = self.get_parameter("xbee_baud").get_parameter_value().integer_value
+        device_id      = self.get_parameter("device_id").get_parameter_value().integer_value
+        sim_mode       = self.get_parameter("sim_mode").get_parameter_value().bool_value
+        sim_tx         = self.get_parameter("sim_tx_topic").get_parameter_value().string_value
+        sim_rx         = self.get_parameter("sim_rx_topic").get_parameter_value().string_value
+        stats_interval = self.get_parameter("stats_interval").get_parameter_value().double_value
 
         if not (1 <= device_id <= 255):
             raise ValueError(f"device_id {device_id} out of range (must be 1-255).")
@@ -118,6 +122,16 @@ class BridgeNode(Node):
         # Keep subscriber refs so they aren't garbage-collected.
         self.subs: list = []
 
+        # Per-bridge RX stats: {received, seq_gaps, decode_errors}
+        self._rx_stats: dict[int, dict] = {}
+        # Last seen sequence number per bridge, for gap detection
+        self._rx_last_seq: dict[int, Optional[int]] = {}
+        # Packet-level errors before bridge_id is known
+        self._rx_unpack_errors = 0
+        self._rx_unknown_bridge = 0
+
+        self._stats_pub = self.create_publisher(String, "radio_stats", 10)
+
         for entry in cfg["topics"]:
             self._setup_bridge(entry)
 
@@ -125,6 +139,10 @@ class BridgeNode(Node):
         self._radio_device.set_receive_callback(self._on_radio_receive)
         self._radio_device.set_ack_callback(self._on_ack_receive)
         self._radio_manager.start()
+
+        if stats_interval > 0:
+            self.create_timer(stats_interval, self._publish_stats)
+            self.get_logger().info(f"Radio stats will be logged every {stats_interval}s on ~/radio_stats")
 
     # ------------------------------------------------------------------
 
@@ -217,12 +235,66 @@ class BridgeNode(Node):
         """Callback wired to the CommsDevice for every inbound DATA packet."""
         self.get_logger().debug(f"RX from device {src_id}: bridge={bridge_id} seq={seq}")
         self._radio_manager.on_receive(bridge_id, seq, src_hw_addr)
+
+        stats = self._rx_stats.setdefault(
+            bridge_id, {"received": 0, "seq_gaps": 0, "decode_errors": 0}
+        )
+        stats["received"] += 1
+        last = self._rx_last_seq.get(bridge_id)
+        if last is not None:
+            dist = seq_distance(last, seq)
+            if dist > 1:
+                gaps = dist - 1
+                stats["seq_gaps"] += gaps
+                self.get_logger().warning(
+                    f"bridge[{bridge_id}] seq gap: expected {last+1} got {seq} ({gaps} missing)"
+                )
+        self._rx_last_seq[bridge_id] = seq
+
         self.receive_radio_packet(payload)
 
     def _on_ack_receive(self, bridge_id: int, seq: int, src_id: int) -> None:
         """Callback wired to the CommsDevice for every inbound ACK packet."""
         self.get_logger().debug(f"ACK from device {src_id}: bridge={bridge_id} seq={seq}")
         self._radio_manager.ack_received(bridge_id, seq)
+
+    def _publish_stats(self) -> None:
+        """Log and publish a JSON snapshot of all radio statistics."""
+        tx = self._radio_manager.get_stats()
+        dev = self._radio_device.get_stats()
+
+        self._radio_manager.log_stats()
+        self.get_logger().info(
+            f"Device: tx={dev['tx_total']} tx_fail={dev['tx_failed']} "
+            f"rx={dev['rx_total']} rx_cksum_fail={dev['rx_checksum_fail']} "
+            f"rx_parse_err={dev['rx_parse_error']} acks_rx={dev['rx_ack_received']}"
+        )
+        for bridge_id, s in self._rx_stats.items():
+            loss_pct = (
+                100.0 * s["seq_gaps"] / (s["received"] + s["seq_gaps"])
+                if (s["received"] + s["seq_gaps"]) > 0 else 0.0
+            )
+            self.get_logger().info(
+                f"  bridge[{bridge_id}] rx: received={s['received']} "
+                f"seq_gaps={s['seq_gaps']} ({loss_pct:.1f}% loss) "
+                f"decode_errors={s['decode_errors']}"
+            )
+        if self._rx_unpack_errors or self._rx_unknown_bridge:
+            self.get_logger().info(
+                f"  rx_unpack_errors={self._rx_unpack_errors} "
+                f"rx_unknown_bridge={self._rx_unknown_bridge}"
+            )
+
+        payload = {
+            "tx_bridges":        tx,
+            "rx_bridges":        self._rx_stats,
+            "device":            dev,
+            "rx_unpack_errors":  self._rx_unpack_errors,
+            "rx_unknown_bridge": self._rx_unknown_bridge,
+        }
+        msg = String()
+        msg.data = json.dumps(payload)
+        self._stats_pub.publish(msg)
 
     def destroy_node(self) -> None:
         self._radio_manager.stop()
@@ -242,6 +314,7 @@ class BridgeNode(Node):
             bridge_id, payload = BridgeCore.unpack_packet(raw)
         except Exception as exc:
             self.get_logger().error(f"Failed to unpack radio packet: {exc}")
+            self._rx_unpack_errors += 1
             return
 
         pub = self.publish_dict.get(bridge_id)
@@ -250,17 +323,24 @@ class BridgeNode(Node):
                 f"Radio packet for unknown bridge id {bridge_id}. "
                 "Is this entry missing from the receiver's config?"
             )
+            self._rx_unknown_bridge += 1
             return
 
         decode = self._decoders.get(bridge_id)
         if decode is None:
             self.get_logger().warn(f"No decoder for bridge id {bridge_id}.")
+            self._rx_stats.setdefault(
+                bridge_id, {"received": 0, "seq_gaps": 0, "decode_errors": 0}
+            )["decode_errors"] += 1
             return
 
         try:
             data = decode(payload)
         except Exception as exc:
             self.get_logger().error(f"Decode failed for bridge {bridge_id}: {exc}")
+            self._rx_stats.setdefault(
+                bridge_id, {"received": 0, "seq_gaps": 0, "decode_errors": 0}
+            )["decode_errors"] += 1
             return
 
         msg = pub.msg_type()

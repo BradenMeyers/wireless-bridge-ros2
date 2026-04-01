@@ -305,13 +305,32 @@ class TxManager:
         if q and q.reliability == "reliable":
             self._device._send_ack(src_hw_addr, bridge_id, seq)
 
+    def get_stats(self) -> dict:
+        """Return per-bridge TX queue statistics as a dict keyed by bridge_id."""
+        result = {}
+        for bridge_id, q in self._queues.items():
+            with q._lock:
+                queue_depth = len(q._queue)
+            result[bridge_id] = {
+                "priority":    q.priority,
+                "reliability": q.reliability,
+                "enqueued":    q.stat_enqueued,
+                "dropped":     q.stat_dropped,
+                "sent":        q.stat_sent,
+                "retried":     q.stat_retried,
+                "failed":      q.stat_failed,
+                "queue_depth": queue_depth,
+            }
+        return result
+
     def log_stats(self) -> None:
         """Dump per-bridge queue statistics to the logger."""
-        for bridge_id, q in self._queues.items():
+        for bridge_id, s in self.get_stats().items():
             self._log.info(
-                f"  [{bridge_id}] priority={q.priority} reliability={q.reliability} "
-                f"enqueued={q.stat_enqueued} dropped={q.stat_dropped} "
-                f"sent={q.stat_sent} retried={q.stat_retried} failed={q.stat_failed}"
+                f"  bridge[{bridge_id}] priority={s['priority']} reliability={s['reliability']} "
+                f"enqueued={s['enqueued']} dropped={s['dropped']} "
+                f"sent={s['sent']} retried={s['retried']} failed={s['failed']} "
+                f"queue_depth={s['queue_depth']}"
             )
 
     def _drain_loop(self) -> None:
