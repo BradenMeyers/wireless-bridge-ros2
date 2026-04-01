@@ -1,0 +1,100 @@
+# bridge.yaml
+#
+# Configures the radio_bridge node topic bridges.
+#
+# Required fields per entry:
+#   input       - ROS 2 topic to subscribe to
+#   output      - ROS 2 topic to publish on
+#   type        - ROS 2 message type  "<package>/msg/<Name>"
+#   id          - bridge identifier, unsigned int 0-255, must match on both ends
+#
+# Optional fields:
+#   mode        - "duplex" (default) | "rx" | "tx" 
+#                   duplex : both — subscribe → transmit AND receive → publish
+#                            use when both ends exchange data on the same bridge_id
+#                   rx     : receive from radio → decode → publish on output_topic
+#                            no subscription; driven by incoming radio packets
+#                   tx     : subscribe to input_topic → encode → transmit over radio
+#                            inbound packets for this bridge_id are ignored
+#   fields      - whitelist of dot-notation field paths to include
+#                 omit to forward the entire message
+#                 order determines the binary wire order — must match on both ends
+#   qos         - QoS overrides (reliability, durability, depth)
+#
+# TX/duplex-only fields:
+#   address     - XBee 64-bit address hex string for unicast, omit for broadcast
+#   priority    - transmit priority tier, lower = higher priority (default 5)
+#   reliability - "best_effort" (default) | "reliable"
+#   queue_depth - max queued packets before oldest is dropped (default 10)
+#
+# XBee port / baud / device_id are ROS params in radio_bridge_params.yaml, not here.
+
+topics:
+
+  # ── TX: send a vector to a remote node ──────────────────────────────────────
+  # - input:   /vector
+  #   output:  /vector          # unused in tx mode
+  #   type:    geometry_msgs/msg/Vector3Stamped
+  #   id:      0
+  #   mode:    tx
+  #   reliability: best_effort
+  #   fields:
+  #     - header.stamp.sec
+  #     - header.stamp.nanosec
+  #     - vector.x
+  #     - vector.y
+  #     - vector.z
+
+
+  # ── RX: receive that vector on the other end ─────────────────────────────────
+  # - input:   /vector          # unused in rx mode
+  #   output:  /vector/from_radio
+  #   type:    geometry_msgs/msg/Vector3Stamped
+  #   id:      0                # must match the tx entry above
+  #   mode:    rx
+  #   fields:                   # must match the tx entry exactly
+  #     - header.stamp.sec
+  #     - header.stamp.nanosec
+  #     - vector.x
+  #     - vector.y
+  #     - vector.z
+
+
+  # ── DUPLEX: bidirectional exchange on the same bridge_id ────────────────────
+  # - input:   /cmd_vel
+  #   output:  /cmd_vel/from_radio
+  #   type:    geometry_msgs/msg/Twist
+  #   id:      1
+  #   mode:    duplex
+  #   reliability: best_effort
+  #   queue_depth: 5
+
+
+  # ── TX with reliable delivery and unicast address ────────────────────────────
+  # - input:   /odom
+  #   output:  /odom             # unused in tx mode
+  #   type:    nav_msgs/msg/Odometry
+  #   id:      2
+  #   mode:    tx
+  #   address: "0013A20041234567"   # target XBee 64-bit address; omit for broadcast
+  #   priority: 1
+  #   reliability: reliable
+  #   queue_depth: 3
+  #   fields:
+  #     - header.stamp.sec
+  #     - header.stamp.nanosec
+  #     - pose.pose.position.x
+  #     - pose.pose.position.y
+  #     - pose.pose.position.z
+
+
+  # ── QoS override example ─────────────────────────────────────────────────
+  # - input:   /cmd_vel
+  #   output:  /cmd_vel/bridge
+  #   type:    geometry_msgs/msg/Twist
+  #   id:      3
+  #   mode:    duplex
+  #   qos:
+  #     reliability: reliable
+  #     durability:  volatile
+  #     depth:       5

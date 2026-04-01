@@ -1,0 +1,108 @@
+# bridge.yaml
+#
+# Configures the radio_bridge node topic bridges.
+#
+# Required fields per entry:
+#   input       - ROS 2 topic to subscribe to
+#   output      - ROS 2 topic to publish on
+#   type        - ROS 2 message type  "<package>/msg/<Name>"
+#   id          - bridge identifier, unsigned int 0-255, must match on both ends
+#
+# Optional fields:
+#   mode        - "local" (default) | "radio_tx" | "radio_rx"
+#                   local     : subscribe → filter → republish on this ROS graph
+#                   radio_tx  : subscribe → binary-encode → send over XBee
+#                   radio_rx  : receive from XBee → decode → publish (no subscription)
+#   fields      - whitelist of dot-notation field paths to include
+#                 omit to forward the entire message
+#                 order determines the binary wire order — must match on both ends
+#   qos         - QoS overrides (reliability, durability, depth)
+#
+# Radio-only fields (radio_tx mode):
+#   address     - XBee 64-bit address hex string for unicast, omit for broadcast
+#   priority    - transmit priority tier, lower = higher priority (default 5)
+#   reliability - "best_effort" (default) | "reliable"
+#   queue_depth - max queued packets before oldest is dropped (default 10)
+#
+# XBee port / baud are ROS params in radio_bridge_params.yaml, not here.
+
+topics:
+
+  # ── RX: receive vector from node A ───────────────────────────────────────
+  - input:   /vector
+    output:  /vector/forwarded/b
+    type:    geometry_msgs/msg/Vector3Stamped
+    id:      0
+    mode:    rx
+    reliability: best_effort
+    fields:
+      - header.stamp.sec
+      - header.stamp.nanosec
+      - header.frame_id
+      - vector.x
+      - vector.y
+      - vector.z
+    # fields omitted → forward entire message
+
+
+  # ── Radio TX: send IMU accel + gyro to a remote vehicle ──────────────────
+  # - input:   /imu/raw
+  #   output:  /imu/raw          # output topic is unused on the TX side
+  #   type:    sensor_msgs/msg/Imu
+  #   id:      1
+  #   mode:    radio_tx
+  #   address: "0013A20041234567"   # target XBee 64-bit address; omit for broadcast
+  #   priority: 3
+  #   reliability: best_effort
+  #   queue_depth: 5
+  #   fields:
+  #     - linear_acceleration.x
+  #     - linear_acceleration.y
+  #     - linear_acceleration.z
+  #     - angular_velocity.x
+  #     - angular_velocity.y
+  #     - angular_velocity.z
+
+
+  # ── Radio RX: receive that same IMU stream on the base station ────────────
+  # - input:   /imu/raw          # input topic is unused on the RX side
+  #   output:  /imu/from_vehicle
+  #   type:    sensor_msgs/msg/Imu
+  #   id:      1                 # must match the radio_tx entry above
+  #   mode:    radio_rx
+  #   fields:                    # must match the radio_tx entry exactly
+  #     - linear_acceleration.x
+  #     - linear_acceleration.y
+  #     - linear_acceleration.z
+  #     - angular_velocity.x
+  #     - angular_velocity.y
+  #     - angular_velocity.z
+
+
+  # ── Radio TX: vehicle position (with reliable delivery) ──────────────────
+  # - input:   /odom
+  #   output:  /odom
+  #   type:    nav_msgs/msg/Odometry
+  #   id:      2
+  #   mode:    radio_tx
+  #   priority: 1
+  #   reliability: reliable
+  #   queue_depth: 3
+  #   fields:
+  #     - header.stamp.sec
+  #     - header.stamp.nanosec
+  #     - pose.pose.position.x
+  #     - pose.pose.position.y
+  #     - pose.pose.position.z
+
+
+  # ── QoS override example ─────────────────────────────────────────────────
+  # - input:   /cmd_vel
+  #   output:  /cmd_vel/bridge
+  #   type:    geometry_msgs/msg/Twist
+  #   id:      3
+  #   mode:    local
+  #   qos:
+  #     reliability: reliable
+  #     durability:  volatile
+  #     depth:       5

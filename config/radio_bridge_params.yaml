@@ -1,0 +1,90 @@
+/rf_bridge:
+  ros__parameters:
+
+    # Path to the bridge.yaml topic configuration file.
+    config_file: /home/frostlab/config/bridge.yaml
+
+    # XBee serial port and baud rate.
+    # Common baud rates: 9600 (default), 57600, 115200
+    xbee_port: /dev/ttyUSB0
+    xbee_baud: 9600
+
+    # Source address of this device, prepended to every outbound packet
+    # so the receiver can identify who sent it.  Must be a unique unsigned
+    # int 1-255 across all devices on the same link.
+    device_id: 1
+
+    # Simulation mode: publish/subscribe raw packet bytes over ROS topics
+    # instead of using XBee hardware.  Useful for testing without a radio.
+    #
+    # Single-node loopback (TX feeds back into RX):
+    #   sim_tx_topic: /radio_sim
+    #   sim_rx_topic: /radio_sim
+    #
+    # Two-node cross-wired (node A device_id=1, node B device_id=2):
+    #   Node A: sim_tx_topic=/a_to_b  sim_rx_topic=/b_to_a
+    #   Node B: sim_tx_topic=/b_to_a  sim_rx_topic=/a_to_b
+    sim_mode: false
+    sim_tx_topic: /radio_sim/tx
+    sim_rx_topic: /radio_sim/rx
+
+/rf_bridge_a:
+  ros__parameters:
+
+    # Path to the bridge.yaml topic configuration file.
+    # config_file: /home/frostlab/config/bridge_a.yaml
+    config_file: /home/frostlab/ros2_ws/install/wireless_bridge/share/wireless_bridge/config/bridge_a.yaml
+
+    # XBee serial port and baud rate.
+    # Common baud rates: 9600 (default), 57600, 115200
+    xbee_port: /dev/frost/rs232_connector_seatrac
+    xbee_baud: 9600
+
+    # Source address of this device, prepended to every outbound packet
+    # so the receiver can identify who sent it.  Must be a unique unsigned
+    # int 1-255 across all devices on the same link.
+    device_id: 1
+
+    # Simulation mode: publish/subscribe raw packet bytes over ROS topics
+    # instead of using XBee hardware.  Useful for testing without a radio.
+    #
+    # Single-node loopback (TX feeds back into RX):
+    #   sim_tx_topic: /radio_sim
+    #   sim_rx_topic: /radio_sim
+    #
+    # Two-node cross-wired (node A device_id=1, node B device_id=2):
+    #   Node A: sim_tx_topic=/a_to_b  sim_rx_topic=/b_to_a
+    #   Node B: sim_tx_topic=/b_to_a  sim_rx_topic=/a_to_b
+    sim_mode: false
+    sim_tx_topic: /radio_sim/a_to_b
+    sim_rx_topic: /radio_sim/b_to_a
+
+/rf_bridge_b:
+  ros__parameters:
+
+    # Path to the bridge.yaml topic configuration file.
+    config_file: /home/frostlab/ros2_ws/install/wireless_bridge/share/wireless_bridge/config/bridge_b.yaml
+
+    # # XBee serial port and baud rate.
+    # # Common baud rates: 9600 (default), 57600, 115200
+    # xbee_port: /dev/ttyUSB0
+    # xbee_baud: 9600
+
+    # Source address of this device, prepended to every outbound packet
+    # so the receiver can identify who sent it.  Must be a unique unsigned
+    # int 1-255 across all devices on the same link.
+    device_id: 2
+
+    # Simulation mode: publish/subscribe raw packet bytes over ROS topics
+    # instead of using XBee hardware.  Useful for testing without a radio.
+    #
+    # Single-node loopback (TX feeds back into RX):
+    #   sim_tx_topic: /radio_sim
+    #   sim_rx_topic: /radio_sim
+    #
+    # Two-node cross-wired (node A device_id=1, node B device_id=2):
+    #   Node A: sim_tx_topic=/a_to_b  sim_rx_topic=/b_to_a
+    #   Node B: sim_tx_topic=/b_to_a  sim_rx_topic=/a_to_b
+    sim_mode: false
+    sim_tx_topic: /radio_sim/b_to_a
+    sim_rx_topic: /radio_sim/a_to_b
